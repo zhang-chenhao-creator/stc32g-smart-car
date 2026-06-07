@@ -1,0 +1,15 @@
+# Keil uVision user-specific files
+*.uvgui.*
+*.uvopt
+
+# Build output
+list/
+Objects/
+Listings/
+*.o
+*.d
+*.crf
+*.lst
+*.map
+*.hex
+*.bin
