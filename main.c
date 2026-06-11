@@ -20,6 +20,7 @@
 #include  "iic.h"
 #include  "font.h"
 #include  "oled.h"
+#include  "pid.h"
 
 
 
@@ -63,6 +64,11 @@ PWMx_Duty PWMB_Duty;
 u16 PWM_Period = 2000; // 2000
 bit PWM5_Flag;
 bit PWM6_Flag;
+Pid_t *line_pid = 0;
+float last_line_value = 0.0f;
+unsigned char line_base_speed = 70;
+int line_pid_limit = 45;
+unsigned char line_pid_tick = 0;
 
 
 /*************	本地函数声明	**************/
@@ -228,6 +234,15 @@ void test01(void)
 
 void Timer2_ISR_Handler (void) interrupt TMR2_VECTOR		//进中断时已经清除标志
 {
+		int line_sum;
+		unsigned char line_count;
+		int line_value;
+		float pid_output;
+		int left_pwm;
+		int right_pwm;
+
+		/*
+
 		if(zuo2==0 && zuo1==0 && zhong==1 && you1==1 && you2==1)   //三个右 80 0
 		{
 			PWM_Run(80,0);
@@ -306,6 +321,93 @@ void Timer2_ISR_Handler (void) interrupt TMR2_VECTOR		//进中断时已经清除标志
 		{
 			PWM_Run(90,90);
 		}
+		*/
+
+		if(line_pid == 0)
+		{
+			PWM_Run(0,0);
+			return;
+		}
+
+		line_pid_tick++;
+		if(line_pid_tick < 10)
+		{
+			return;
+		}
+		line_pid_tick = 0;
+
+		line_sum = 0;
+		line_count = 0;
+
+		if(zuo2 == 1)
+		{
+			line_sum += -20;
+			line_count++;
+		}
+		if(zuo1 == 1)
+		{
+			line_sum += -10;
+			line_count++;
+		}
+		if(zhong == 1)
+		{
+			line_sum += 0;
+			line_count++;
+		}
+		if(you1 == 1)
+		{
+			line_sum += 10;
+			line_count++;
+		}
+		if(you2 == 1)
+		{
+			line_sum += 20;
+			line_count++;
+		}
+
+		if(line_count == 0)
+		{
+			if(last_line_value > 0.0f)
+			{
+				PWM_Run(60,30);
+			}
+			else if(last_line_value < 0.0f)
+			{
+				PWM_Run(30,60);
+			}
+			else
+			{
+				PWM_Run(50,50);
+			}
+			return;
+		}
+
+		line_value = line_sum / line_count;
+		last_line_value = (float)line_value;
+
+		pid_output = line_pid->update(line_pid, (float)line_value);
+		left_pwm = (int)((float)line_base_speed - pid_output);
+		right_pwm = (int)((float)line_base_speed + pid_output);
+
+		if(left_pwm > 100)
+		{
+			left_pwm = 100;
+		}
+		else if(left_pwm < 0)
+		{
+			left_pwm = 0;
+		}
+
+		if(right_pwm > 100)
+		{
+			right_pwm = 100;
+		}
+		else if(right_pwm < 0)
+		{
+			right_pwm = 0;
+		}
+
+		PWM_Run(left_pwm,right_pwm);
 }
 
 /******************** 主函数**************************/
@@ -335,6 +437,22 @@ void main(void)
 	Timer2_config();
 	PWM_config();
 	oled_Init();
+
+	line_pid = pidCreate();
+	if(line_pid != 0)
+	{
+		line_pid->kp = 1.8f;
+		line_pid->ki = 0.0f;
+		line_pid->kd = 1.0f;
+		line_pid->setpoint = 0.0f;
+		line_pid->maxOutput = (float)line_pid_limit;
+		line_pid->minOutput = (float)(-line_pid_limit);
+		line_pid->lastError = 0.0f;
+		line_pid->lastLastError = 0.0f;
+		line_pid->integral = 0.0f;
+		line_pid->lastOutput = 0.0f;
+		line_pid->mode = PID_MODE_POSITION;
+	}
 	
 	EA = 1;
 	

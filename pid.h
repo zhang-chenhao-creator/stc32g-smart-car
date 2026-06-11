@@ -40,14 +40,14 @@ typedef struct {
     // PID mode
     PidMode_t mode;     // PID mode (position or incremental)
     
-    // Method pointers (simulating member functions) — reentrant for C251 float params
-    void (*init)(void* reentrant self, float reentrant kp, float reentrant ki, float reentrant kd);
-    float reentrant (*update)(void* reentrant self, float reentrant currentValue);
-    void (*setSetpoint)(void* reentrant self, float reentrant setpoint);
-    void (*setTunings)(void* reentrant self, float reentrant kp, float reentrant ki, float reentrant kd);
-    void (*setLimits)(void* reentrant self, float reentrant maxOut, float reentrant minOut);
-    void (*reset)(void* reentrant self);
-    void (*setMode)(void* reentrant self, PidMode_t reentrant mode);
+    // Method pointers (simulating member functions)
+    void (*init)(void* self, float kp, float ki, float kd);
+    float (*update)(void* self, float currentValue);
+    void (*setSetpoint)(void* self, float setpoint);
+    void (*setTunings)(void* self, float kp, float ki, float kd);
+    void (*setLimits)(void* self, float maxOut, float minOut);
+    void (*reset)(void* self);
+    void (*setMode)(void* self, PidMode_t mode);
 } Pid_t;
 
 Pid_t* pidCreate(void);
