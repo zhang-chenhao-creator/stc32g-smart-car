@@ -1,0 +1,30 @@
+# Keil generated files
+*.lst
+*.obj
+*.m51
+*.hex
+*.map
+*.lnp
+*.plg
+*.build_log.htm
+*.uvgui.*
+*.uvopt
+*.uvoptx
+*.uvguix.*
+*.crf
+*.d
+*.o
+*.sct
+*.dep
+*.iex
+*.htm
+*.lnp
+Listings/
+Objects/
+output/
+list/
+
+# Debug
+*.tra
+*.bak
+*.sav
