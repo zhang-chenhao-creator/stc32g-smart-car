@@ -66,12 +66,13 @@ bit PWM5_Flag;
 bit PWM6_Flag;
 int last_line_value = 0;
 int line_pid_last_error = 0;
-unsigned char line_base_speed = 70;
-int line_pid_limit = 45;
+unsigned char line_base_speed = 80;
+int line_pid_limit = 25;
 unsigned char line_pid_tick = 0;
 unsigned char line_lost_count = 0;
-int line_pid_kp = 18;
+int line_pid_kp = 20;
 int line_pid_kd = 10;
+int machine_cnt = 0;
 
 #define LINE_PID_SCALE 10
 
@@ -220,6 +221,28 @@ void PWM_Right(int pwm)     //用0~100表示
 
 void PWM_Run(int pwm1,int pwm2)  //左右PWM
 {
+	if(pwm1<0)
+	{
+		AIN1=1;
+		AIN2=0;
+		pwm1=-pwm1;
+	}
+	else
+	{
+		AIN1=0;
+		AIN2=1;
+	}
+	if(pwm2<0)
+	{
+		BIN1=0;
+		BIN2=1;
+		pwm2=-pwm2;
+	}
+	else
+	{
+		BIN1=1;
+		BIN2=0;
+	}
 	PWM_Left(pwm1);
 	PWM_Right(pwm2);
 	UpdatePwm(PWMB, &PWMB_Duty);
@@ -375,36 +398,38 @@ void Timer2_ISR_Handler (void) interrupt TMR2_VECTOR		//进中断时已经清除标志
 
 		if(line_mask == 0)
 		{
+			// return;
 			if(line_lost_count < 250)
 			{
 				line_lost_count++;
 			}
+			
 
 			if(last_line_value > 0)
 			{
-				if(line_lost_count < 50)
-				{
-					PWM_Run(85,10);
-				}
-				else
-				{
-					PWM_Run(80,0);
-				}
+				// if(line_lost_count < 50)
+				// {
+					PWM_Run(85,-85);
+				// }
+				// else
+				// {
+				// 	PWM_Run(80,0);
+				// }
 			}
 			else if(last_line_value < 0)
 			{
-				if(line_lost_count < 50)
-				{
-					PWM_Run(10,85);
-				}
-				else
-				{
-					PWM_Run(0,80);
-				}
+				// if(line_lost_count < 50)
+				// {
+					PWM_Run(-85,85);
+				// }
+				// else
+				// {
+				// 	PWM_Run(0,80);
+				// }
 			}
 			else
 			{
-				PWM_Run(50,50);
+				PWM_Run(75,75);
 			}
 			return;
 		}
@@ -429,22 +454,36 @@ void Timer2_ISR_Handler (void) interrupt TMR2_VECTOR		//进中断时已经清除标志
 		left_pwm = (int)line_base_speed - pid_output;
 		right_pwm = (int)line_base_speed + pid_output;
 
-		if(left_pwm > 100)
-		{
-			left_pwm = 100;
-		}
-		else if(left_pwm < 0)
-		{
-			left_pwm = 0;
-		}
+		// if(left_pwm < 45)
+		// 	left_pwm -= 100;
+		// if(right_pwm < 45)
+		// 	right_pwm -= 100;
 
-		if(right_pwm > 100)
+		// if(left_pwm > 100)
+		// {
+		// 	left_pwm = 100;
+		// }
+		// else if(left_pwm < 0)
+		// {
+		// 	left_pwm = 0;
+		// }
+
+		// if(right_pwm > 100)
+		// {
+		// 	right_pwm = 100;
+		// }
+		// else if(right_pwm < 0)
+		// {
+		// 	right_pwm = 0;
+		// }
+
+		if(left_pwm>100||left_pwm<-100)
 		{
-			right_pwm = 100;
+			left_pwm = 100*(left_pwm>0?1:-1);
 		}
-		else if(right_pwm < 0)
+		if(right_pwm>100||right_pwm<-100)
 		{
-			right_pwm = 0;
+			right_pwm = 100*(right_pwm>0?1:-1);
 		}
 
 		PWM_Run(left_pwm,right_pwm);
@@ -476,7 +515,7 @@ void main(void)
 	Timer1_config();
 	Timer2_config();
 	PWM_config();
-	oled_Init();
+	// oled_Init();
 
 	
 	EA = 1;
