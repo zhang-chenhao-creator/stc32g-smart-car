@@ -71,10 +71,42 @@ int line_pid_limit = 25;
 unsigned char line_pid_tick = 0;
 unsigned char line_lost_count = 0;
 int line_pid_kp = 20;
-int line_pid_kd = 10;
+int line_pid_kd = 13;
 int machine_cnt = 0;
 
 #define LINE_PID_SCALE 10
+
+/*
+ * 巡线状态机业务约定：
+ * LINE      单传感器识别黑线，交给普通 PID 巡线。
+ * JUNCTION  中线、左侧、右侧同时识别，按十字路口处理，只直行不转弯。
+ * TURN      多传感器但不是十字，统一按 T 字、直角、普通转弯处理。
+ * SEARCH    五路全白，按上一次转向方向原地旋转找线。
+ * LOCKOUT   十字离开后的冷却状态，避免同一个十字区域重复触发。
+ */
+#define LINE_STATE_LINE 0
+#define LINE_STATE_JUNCTION 1
+#define LINE_STATE_TURN 2
+#define LINE_STATE_SEARCH 3
+#define LINE_STATE_LOCKOUT 4
+
+#define TURN_LEFT 0
+#define TURN_RIGHT 1
+#define TURN_SPEED 85
+#define SEARCH_SPEED 85
+#define LOCKOUT_LINE_TICKS 20
+
+/*
+ * 协作调试重点：
+ * junction_state 是当前赛道元素处理状态。
+ * last_turn_dir 记住最近一次明确转向，默认右转；全白找线会复用它。
+ * junction_tick 当前只记录压在十字上的时间，不参与退出保护。
+ * lockout_tick 连续看到单线的次数，达到 LOCKOUT_LINE_TICKS 才退出冷却。
+ */
+unsigned char junction_state = LINE_STATE_LINE;
+unsigned char last_turn_dir = TURN_RIGHT;
+unsigned int junction_tick = 0;
+unsigned char lockout_tick = 0;
 
 
 /*************	本地函数声明	**************/
@@ -260,181 +292,25 @@ void test01(void)
 		delay_ms(1000);
 }
 
-void Timer2_ISR_Handler (void) interrupt TMR2_VECTOR		//进中断时已经清除标志
+
+/*
+ * 普通巡线 PID：LINE 状态和 LOCKOUT 状态复用这一套控制。
+ * line_sum 左侧为负、右侧为正；line_error 取反后，线偏右会让左轮更快、右轮更慢。
+ */
+void RunLinePid(unsigned char line_mask, int line_sum, unsigned char line_count)
 {
-		int line_sum;
-		unsigned char line_count;
-		unsigned char line_mask;
 		int line_value;
 		int line_error;
 		int pid_output;
 		int left_pwm;
 		int right_pwm;
 
-		/*
-
-		if(zuo2==0 && zuo1==0 && zhong==1 && you1==1 && you2==1)   //三个右 80 0
+		if(line_mask == 0 || line_count == 0)
 		{
-			PWM_Run(80,0);
-		}
-		else if(zuo2==1 && zuo1==1 && zhong==1 && you1==0 && you2==0) //三个左 0 80
-		{
-			PWM_Run(0,80);
-		}
-		else if (zuo2==0 && zuo1==0 && zhong==0 && you1==1 && you2==1)   //两个右 90 0
-		{
-			PWM_Run(90,0);
-		}
-		
-		else if (zuo2==0 && zuo1==0 && zhong==1 && you1==0 && you2==1)   //两个右 85 0
-		{
-			PWM_Run(85,0);
-		}
-		
-		else if (zuo2==0 && zuo1==0 && zhong==1 && you1==1 && you2==0)   //两个右 90 50
-		{
-			PWM_Run(90,50);
-		}
-		else if (zuo2==1 && zuo1==1 && zhong==0 && you1==0 && you2==0)   //两个左 0 90
-		{
-			PWM_Run(0,90);
-		}
-		else if (zuo2==1 && zuo1==0 && zhong==1 && you1==0 && you2==0)   //两个左 0 85
-		{
-			PWM_Run(0,85);
-		}
-		else if (zuo2==0 && zuo1==1 && zhong==1 && you1==0 && you2==0)   //两个左 50 90
-		{
-			PWM_Run(50,90);
-		}
-		
-	  else if (zuo2==0 && zuo1==0 && zhong==0 && you1==0 && you2==1)    //一个右 90 0
-		{
-			PWM_Run(90,0);
-		}
-		else if (zuo2==0 && zuo1==0 && zhong==0 && you1==1 && you2==0)    //一个右 85 50
-		{
-			PWM_Run(85,50);
-		}
-		else if (zuo2==1 && zuo1==0 && zhong==0 && you1==0 && you2==0)    //一个左 0 90
-		{
-			PWM_Run(0,90);
-		}
-		else if (zuo2==0 && zuo1==1 && zhong==0 && you1==0 && you2==0)    //一个左 50 85
-		{
-			PWM_Run(50,85);
-		}
-		else if(zuo1==1 && you1==1  && zhong==1)                      //三个中  95 95         
-		{
-		  PWM_Run(95,95);
-		}
-		else if (zuo2==0 && zuo1==1 && (zhong==0 || zhong==1) && you1==1 && you2==0) //mid  95 95
-		{
-			PWM_Run(95,95);
-		}
-		
-		else if (zuo2==1 && zuo1==1 && zhong==0 && you1==1 && you2==1) //左右俩 80 80
-		{
-			PWM_Run(80,80);
-		}
-		
-		else if(zuo2==1 && zuo1==0 && zhong==0 && you1==0 && you2==1)  //左右一 80 80
-		{
-				PWM_Run(80,80);
-		}
-		else if(zuo2==0 && zuo1==1 && zhong==0 && you1==1 && you2==0)  //左右一 80 80
-		{
-				PWM_Run(80,80);
-		}
-	
-		else if (zuo2==0 && zuo1==0 && zhong==1 && you1==0 && you2==0) //mid 90 90
-		{
-			PWM_Run(90,90);
-		}
-		*/
-
-
-		line_pid_tick++;
-		if(line_pid_tick < 10)
-		{
-			return;
-		}
-		line_pid_tick = 0;
-
-		line_sum = 0;
-		line_count = 0;
-		line_mask = 0;
-
-		if(zuo2 == 1)
-		{
-			line_mask |= 0x10;
-			line_sum += -20;
-			line_count++;
-		}
-		if(zuo1 == 1)
-		{
-			line_mask |= 0x08;
-			line_sum += -10;
-			line_count++;
-		}
-		if(zhong == 1)
-		{
-			line_mask |= 0x04;
-			line_sum += 0;
-			line_count++;
-		}
-		if(you1 == 1)
-		{
-			line_mask |= 0x02;
-			line_sum += 10;
-			line_count++;
-		}
-		if(you2 == 1)
-		{
-			line_mask |= 0x01;
-			line_sum += 20;
-			line_count++;
+				return;
 		}
 
-		if(line_mask == 0)
-		{
-			// return;
-			if(line_lost_count < 250)
-			{
-				line_lost_count++;
-			}
-			
-
-			if(last_line_value > 0)
-			{
-				// if(line_lost_count < 50)
-				// {
-					PWM_Run(85,-85);
-				// }
-				// else
-				// {
-				// 	PWM_Run(80,0);
-				// }
-			}
-			else if(last_line_value < 0)
-			{
-				// if(line_lost_count < 50)
-				// {
-					PWM_Run(-85,85);
-				// }
-				// else
-				// {
-				// 	PWM_Run(0,80);
-				// }
-			}
-			else
-			{
-				PWM_Run(75,75);
-			}
-			return;
-		}
-
-		line_lost_count = 0;
+		/* 多个传感器同时识别时取平均位置，作为 PID 的线位置输入。 */
 		line_value = line_sum / line_count;
 		last_line_value = line_value;
 
@@ -444,51 +320,201 @@ void Timer2_ISR_Handler (void) interrupt TMR2_VECTOR		//进中断时已经清除标志
 
 		if(pid_output > line_pid_limit)
 		{
-			pid_output = line_pid_limit;
+				pid_output = line_pid_limit;
 		}
 		else if(pid_output < -line_pid_limit)
 		{
-			pid_output = -line_pid_limit;
+				pid_output = -line_pid_limit;
 		}
 
+		/* pid_output 为正时向右修，左轮加速、右轮减速；为负时向左修。 */
 		left_pwm = (int)line_base_speed - pid_output;
 		right_pwm = (int)line_base_speed + pid_output;
 
-		// if(left_pwm < 45)
-		// 	left_pwm -= 100;
-		// if(right_pwm < 45)
-		// 	right_pwm -= 100;
-
-		// if(left_pwm > 100)
-		// {
-		// 	left_pwm = 100;
-		// }
-		// else if(left_pwm < 0)
-		// {
-		// 	left_pwm = 0;
-		// }
-
-		// if(right_pwm > 100)
-		// {
-		// 	right_pwm = 100;
-		// }
-		// else if(right_pwm < 0)
-		// {
-		// 	right_pwm = 0;
-		// }
-
-		if(left_pwm>100||left_pwm<-100)
+		if(left_pwm > 100 || left_pwm < -100)
 		{
-			left_pwm = 100*(left_pwm>0?1:-1);
+				left_pwm = 100 * (left_pwm > 0 ? 1 : -1);
 		}
-		if(right_pwm>100||right_pwm<-100)
+		if(right_pwm > 100 || right_pwm < -100)
 		{
-			right_pwm = 100*(right_pwm>0?1:-1);
+				right_pwm = 100 * (right_pwm > 0 ? 1 : -1);
 		}
 
-		PWM_Run(left_pwm,right_pwm);
+		PWM_Run(left_pwm, right_pwm);
 }
+void Timer2_ISR_Handler (void) interrupt TMR2_VECTOR		//进中断时已经清除标志
+{
+		int line_sum;
+		unsigned char line_count;
+		unsigned char line_mask;
+		unsigned char has_center;
+		unsigned char has_left;
+		unsigned char has_right;
+		unsigned char is_white;
+		unsigned char is_line;
+		unsigned char is_junction;
 
+		/* Timer2 为 100us 中断；每 10 次执行一次巡线逻辑，实际控制周期约 1ms。 */
+		line_pid_tick++;
+		if(line_pid_tick < 10)
+		{
+				return;
+		}
+		line_pid_tick = 0;
+
+		/*
+		 * 5 路传感器压成一个 bitmask，便于统一判断赛道元素：
+		 * 0x10 左外 zuo2，0x08 左内 zuo1，0x04 中线 zhong，0x02 右内 you1，0x01 右外 you2。
+		 */
+		line_sum = 0;
+		line_count = 0;
+		line_mask = 0;
+
+		if(zuo2 == 1)
+		{
+				line_mask |= 0x10;
+				line_sum += -20;
+				line_count++;
+		}
+		if(zuo1 == 1)
+		{
+				line_mask |= 0x08;
+				line_sum += -10;
+				line_count++;
+		}
+		if(zhong == 1)
+		{
+				line_mask |= 0x04;
+				line_sum += 0;
+				line_count++;
+		}
+		if(you1 == 1)
+		{
+				line_mask |= 0x02;
+				line_sum += 10;
+				line_count++;
+		}
+		if(you2 == 1)
+		{
+				line_mask |= 0x01;
+				line_sum += 20;
+				line_count++;
+		}
+
+		/* 基础业务判定：全白、单线、十字。剩余多个传感器组合统一交给 TURN。 */
+		has_center = (line_mask & 0x04) ? 1 : 0;
+		has_left = (line_mask & 0x18) ? 1 : 0;
+		has_right = (line_mask & 0x03) ? 1 : 0;
+		is_white = (line_mask == 0) ? 1 : 0;
+		is_line = (line_mask == 0x10 || line_mask == 0x08 || line_mask == 0x04 || line_mask == 0x02 || line_mask == 0x01) ? 1 : 0;
+		is_junction = (has_center && has_left && has_right) ? 1 : 0;
+
+		/* 状态转移：先按当前传感器组合决定下一步状态，再在下面统一输出电机动作。 */
+		if(is_white)
+		{
+				junction_state = LINE_STATE_SEARCH;
+				if(line_lost_count < 250)
+				{
+						line_lost_count++;
+				}
+		}
+		else
+		{
+				line_lost_count = 0;
+
+				/* 十字期间持续直行；只要离开十字组合，就进入 LOCKOUT 防止重复识别。 */
+				if(junction_state == LINE_STATE_JUNCTION)
+				{
+						if(is_junction)
+						{
+								if(junction_tick < 65535)
+								{
+										junction_tick++;
+								}
+						}
+						else
+						{
+								junction_state = LINE_STATE_LOCKOUT;
+								junction_tick = 0;
+								lockout_tick = 0;
+						}
+				}
+				/* LOCKOUT 内不重新触发十字，必须连续稳定看到单线后才恢复普通巡线。 */
+				else if(junction_state == LINE_STATE_LOCKOUT)
+				{
+						if(is_line)
+						{
+								if(lockout_tick < 250)
+								{
+										lockout_tick++;
+								}
+								if(lockout_tick >= LOCKOUT_LINE_TICKS)
+								{
+										junction_state = LINE_STATE_LINE;
+										lockout_tick = 0;
+								}
+						}
+						else
+						{
+								lockout_tick = 0;
+						}
+				}
+				else if(is_junction)
+				{
+						junction_state = LINE_STATE_JUNCTION;
+						junction_tick = 0;
+				}
+				else if(is_line)
+				{
+						junction_state = LINE_STATE_LINE;
+				}
+				else
+				{
+						/* 多传感器非十字：只有单侧明确有线时更新方向；左右都有时沿用上次方向。 */
+						if(has_left && !has_right)
+						{
+								last_turn_dir = TURN_LEFT;
+						}
+						else if(has_right && !has_left)
+						{
+								last_turn_dir = TURN_RIGHT;
+						}
+						junction_state = LINE_STATE_TURN;
+				}
+		}
+
+		/* 状态动作：每个有效控制周期只输出一次 PWM。 */
+		if(junction_state == LINE_STATE_SEARCH)
+		{
+				if(last_turn_dir == TURN_LEFT)
+				{
+						PWM_Run(-SEARCH_SPEED, SEARCH_SPEED);
+				}
+				else
+				{
+						PWM_Run(SEARCH_SPEED, -SEARCH_SPEED);
+				}
+		}
+		else if(junction_state == LINE_STATE_JUNCTION)
+		{
+				PWM_Run(line_base_speed, line_base_speed);
+		}
+		else if(junction_state == LINE_STATE_TURN)
+		{
+				if(last_turn_dir == TURN_LEFT)
+				{
+						PWM_Run(-TURN_SPEED, TURN_SPEED);
+				}
+				else
+				{
+						PWM_Run(TURN_SPEED, -TURN_SPEED);
+				}
+		}
+		else
+		{
+				RunLinePid(line_mask, line_sum, line_count);
+		}
+}
 /******************** 主函数**************************/
 void main(void)
 {
