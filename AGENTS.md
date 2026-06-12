@@ -3,6 +3,11 @@
 - 本项目使用 `STC32G12K128` + `Keil C251`。
 - 代码优先精简、可靠，避免复杂抽象和不必要封装。
 
+## 代码库
+
+- Gitee：`https://gitee.com/chenhaotwooooo/smart-car_-stc32-g12-k128`
+- GitHub：`https://github.com/zhang-chenhao-creator/stc32g-smart-car`
+
 ## 开放类赛道规则
 
 - 赛道元素可能包含直道、弯道、45°~135°转角、十字路口、T 字路口、死路、起点 / 终点。
