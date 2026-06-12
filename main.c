@@ -69,6 +69,7 @@ int line_pid_last_error = 0;
 unsigned char line_base_speed = 70;
 int line_pid_limit = 45;
 unsigned char line_pid_tick = 0;
+unsigned char line_lost_count = 0;
 int line_pid_kp = 18;
 int line_pid_kd = 10;
 
@@ -374,13 +375,32 @@ void Timer2_ISR_Handler (void) interrupt TMR2_VECTOR		//进中断时已经清除标志
 
 		if(line_mask == 0)
 		{
+			if(line_lost_count < 250)
+			{
+				line_lost_count++;
+			}
+
 			if(last_line_value > 0)
 			{
-				PWM_Run(60,30);
+				if(line_lost_count < 50)
+				{
+					PWM_Run(85,10);
+				}
+				else
+				{
+					PWM_Run(80,0);
+				}
 			}
 			else if(last_line_value < 0)
 			{
-				PWM_Run(30,60);
+				if(line_lost_count < 50)
+				{
+					PWM_Run(10,85);
+				}
+				else
+				{
+					PWM_Run(0,80);
+				}
 			}
 			else
 			{
@@ -389,6 +409,7 @@ void Timer2_ISR_Handler (void) interrupt TMR2_VECTOR		//进中断时已经清除标志
 			return;
 		}
 
+		line_lost_count = 0;
 		line_value = line_sum / line_count;
 		last_line_value = line_value;
 
